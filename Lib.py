@@ -1,0 +1,55 @@
+from pyomo.environ import log as pyolog
+from pyomo.environ import *
+from pyomo.opt import SolverFactory
+from numpy import *
+from pyomo.opt.parallel import SolverManagerFactory
+import time
+import matplotlib as mpl
+mpl.use('TkAgg') # see https://stackoverflow.com/questions/21784641/installation-issue-with-matplotlib-python
+import matplotlib.pyplot as plt
+
+## functions
+
+def step_1(x_old, y_old, rho, a, e, A, G, beta):
+    print 'Starting Step 1 for agent %i' % a
+    model = AbstractModel('Step_1')
+    model.x = Var(G, within=NonNegativeReals, bounds=(0,1000))
+
+    def obj_rule(model):
+        return sum( -beta[a, g] * pyolog(model.x[g]) for g in G ) + sum( y_old[g] * model.x[g] for g in G ) + rho/2.0 * (sum( (model.x[g] + sum( x_old[b, g] for b in (A - {a}) ) - sum( e[c, g] for c in A ) )** 2 for g in G ))
+        #return 0.0005 * (model.x[1]-25.6)**2.0 - 0.1587*model.x[1] -10*pyolog(model.x[1]) + model.x[2]
+
+    model.obj = Objective( rule = obj_rule, sense = minimize )
+
+    #def con_budget(model):
+    #    return sum( model.x[g] for g in G) == sum( e[a, g] for g in G)
+
+    #def con_budget(model):
+    #	return sum( model.x[g] * y_old[g] for g in G) == sum( e[a, g] * y_old[g] for g in G)
+
+    #model.con_budget = Constraint(rule=con_budget)
+
+    instance = model.create_instance()
+    opt_solver = SolverFactory("ipopt")
+    results = opt_solver.solve(instance)
+    instance.solutions.load_from(results)
+    x_a_ans = {}
+    for g in G:
+        x_a_ans[g]=value(instance.x[g])
+        print 'Current consumption for good %i by agent %i: %f' % (g, a,  x_a_ans[g])
+    return x_a_ans
+
+def step_2(x_new, y_old, rho, e, A, G):
+    print 'Starting Step 2'
+    y_new = {}
+    for g in G:
+        y_new[g] = y_old[g] + rho * sum((x_new[a,g] - e[a,g]) for a in A)
+        print 'Current price for good %i: %f' % (g, y_new[g])
+    return y_new
+
+def print_dict(d):
+    lists = sorted(d.items()) # sorted by key, return a list of tuples
+    x, y = zip(*lists) # unpack a list of pairs into two tuples
+
+    plt.plot(x, y)
+
